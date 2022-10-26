@@ -98,11 +98,13 @@ class Wiiboard(object):
             print("WiiBoard connected")
         else:
             print("Could not connect to WiiBoard at address " + address)
+
     def start_service(self):
         self.finished = False
         t = Thread(target=self.receive)
-        t.daemon = True # close if master process exits
+        t.daemon = True  # close if master process exits
         t.start()
+
     def receive(self):
         # try:
         #   self.receivesocket.settimeout(0.1)       #not for windows?
