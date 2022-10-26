@@ -3,7 +3,7 @@
 """
 game.py - main in-game scene classes
 """
-
+import math
 import os
 import pygame
 from pygame.locals import *
@@ -151,7 +151,7 @@ class MainGame(GameScene):
         #step = 8.0/self.window_size[0]
         step = 1.0/self.window_size[0]
         x = 0.0
-        for xi in range(self.course_len*self.window_size[0]/1):
+        for xi in range(math.floor(self.course_len*self.window_size[0]/1)):
             y = self.wave.wave_func(x)
             x += step
             self.wavesurface.blit(resources.kernal_gfx,(self.window_size[0]*(x+0.5)-8,self.window_size[1]*y-8))

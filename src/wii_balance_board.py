@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import queue
 import time
-
+from threading import Thread
 # using PyBluez-updated==0.31
 import bluetooth
 
@@ -98,11 +98,15 @@ class Wiiboard(object):
             print("WiiBoard connected")
         else:
             print("Could not connect to WiiBoard at address " + address)
-
+    def start_service(self):
+        self.finished = False
+        t = Thread(target=self.receive)
+        t.daemon = True # close if master process exits
+        t.start()
     def receive(self):
         # try:
         #   self.receivesocket.settimeout(0.1)       #not for windows?
-        while self.status == "Connected" and not self.processor.done:
+        while self.status == "Connected":  # and not self.processor.done
             data = self.receivesocket.recv(25)
             intype = int(data.hex()[2:4])
             if intype == INPUT_STATUS:
@@ -121,7 +125,7 @@ class Wiiboard(object):
                         self.calibrationRequested = False
             elif intype == EXTENSION_8BYTES:
                 board_event = self.create_board_event(data[2:12])
-                self.processor.mass(board_event)
+                # self.processor.mass(board_event)
                 try:
                     self.EventQueue.put_nowait(board_event)
                 except queue.Full:
