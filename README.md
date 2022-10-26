@@ -8,10 +8,11 @@ Requirements:
 
   Linux/Raspberry Pi: Functions for bluetooth communications with the Wii Balance Board are specific to Linux.
 
-  Python 2.7+ (tested on 2.7.6, should work on earlier versions): http://www.python.org/
-  Pygame 1.9+: http://www.pygame.org/
+  3.10 (tested on 3.10.8, not compatible with original python 2 version): http://www.python.org/
   
-  Requires the following packages to be installed: bluez bluez-utils python-bluez
+  Pygame 1.9+ (tested on pygame 2.1.2): http://www.pygame.org/ 
+  
+  Requires the following packages to be installed: bluez bluez-utils PyBluez-updated
 
 =================
 Running the game:
@@ -38,6 +39,8 @@ Game Design/Programming/Graphics: mit-mit
 "wii_balance_board.py" uses code and methods modified from:
 "gr8w8upd8m8" by Stavros Korokithakis
 https://github.com/skorokithakis/gr8w8upd8m8
+
+Python 3 porting: [@deathzombee](https://github.com/deathzombee)
 
 Music and Sound:
 
