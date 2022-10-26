@@ -1,0 +1,6 @@
+.idea/*
+src/__pycache__/*
+*.pyc
+src/gr8w8upd8m8.py
+errors_refactor.txt
+venv/*
