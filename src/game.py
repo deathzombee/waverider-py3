@@ -17,7 +17,7 @@ from common import FadeInOut
 
 import subprocess
 from wii_balance_board import Wiiboard, BoardEvent
-import Queue
+import queue
 
 global board
 
@@ -151,7 +151,7 @@ class MainGame(GameScene):
         #step = 8.0/self.window_size[0]
         step = 1.0/self.window_size[0]
         x = 0.0
-        for xi in xrange(self.course_len*self.window_size[0]/1):
+        for xi in range(self.course_len*self.window_size[0]/1):
             y = self.wave.wave_func(x)
             x += step
             self.wavesurface.blit(resources.kernal_gfx,(self.window_size[0]*(x+0.5)-8,self.window_size[1]*y-8))
@@ -204,13 +204,13 @@ class MainGame(GameScene):
                 try:
                     event = board.EventQueue.get_nowait()
                     qsize = board.EventQueue.qsize()
-                    for j in xrange(qsize):
+                    for j in range(qsize):
                         event2 = board.EventQueue.get()
                     self.last_event = event
                     if event.totalWeight > 20.0:
                         self.stepped_on = True
                     
-                except Queue.Empty:
+                except queue.Empty:
                     event = self.last_event
                 
                 # convert to player angle
@@ -359,9 +359,9 @@ class TitleScreen(GameScene):
             board.connect(address)  # The wii board must be in sync mode at this time
             board.wait(200)
             # Flash the LED so we know we can step on.
-            board.setLight(False)
+            board.set_light(False)
             board.wait(500)
-            board.setLight(True)
+            board.set_light(True)
             
             if not board.status == "Connected":
                 self.director.change_scene(None, [])
@@ -382,13 +382,13 @@ class TitleScreen(GameScene):
             try:
                 event = board.EventQueue.get_nowait()
                 qsize = board.EventQueue.qsize()
-                for j in xrange(qsize):
+                for j in range(qsize):
                     event2 = board.EventQueue.get()
                 self.last_event = event
                 if event.totalWeight > 20.0:
                     good_count += 1
                 
-            except Queue.Empty:
+            except queue.Empty:
                 event = self.last_event
             
             if good_count > 10:

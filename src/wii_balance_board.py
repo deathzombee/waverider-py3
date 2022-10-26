@@ -1,20 +1,9 @@
-#!/usr/bin/python
-
-"""
-wii_balance_board.py - functions for interfacing with wii balance board
-
-Code and methods modified from:
-"gr8w8upd8m8" by Stavros Korokithakis
-https://github.com/skorokithakis/gr8w8upd8m8
-
-This version runs on a background thread and passes balance board messages to a queue. 
-"""
-
-import bluetooth
+#!/usr/bin/env python3
+import queue
 import time
 
-from threading import Thread
-import Queue
+# using PyBluez-updated==0.31
+import bluetooth
 
 CONTINUOUS_REPORTING = "04"  # Easier as string with leading zero
 
@@ -29,7 +18,7 @@ INPUT_STATUS = 20
 INPUT_READ_DATA = 21
 
 EXTENSION_8BYTES = 32
-#end "hex" values
+# end "hex" values
 
 BUTTON_DOWN_MASK = 8
 
@@ -40,102 +29,105 @@ BOTTOM_LEFT = 3
 
 BLUETOOTH_NAME = "Nintendo RVL-WBC-01"
 
+
 # Simple wiiboard message packet
 class BoardEvent(object):
-    def __init__(self, topLeft, topRight, bottomLeft, bottomRight, buttonPressed, buttonReleased):
+    def __init__(
+            self, top_left, top_right, bottom_left, bottom_right, button_pressed, button_released
+    ):
+        self.topLeft = top_left
+        self.topRight = top_right
+        self.bottomLeft = bottom_left
+        self.bottomRight = bottom_right
+        self.buttonPressed = button_pressed
+        self.buttonReleased = button_released
+        # convenience value
+        self.totalWeight = top_left + top_right + bottom_left + bottom_right
 
-        self.topLeft = topLeft
-        self.topRight = topRight
-        self.bottomLeft = bottomLeft
-        self.bottomRight = bottomRight
-        self.buttonPressed = buttonPressed
-        self.buttonReleased = buttonReleased
-        #convenience value
-        self.totalWeight = topLeft + topRight + bottomLeft + bottomRight
 
-# Wiiboard: talks to wii balance board
 class Wiiboard(object):
     def __init__(self):
         # Sockets and status
         self.receivesocket = None
         self.controlsocket = None
+
+        # self.processor = processor
         self.calibration = []
         self.calibrationRequested = False
         self.LED = False
         self.address = None
         self.buttonDown = False
-        for i in xrange(3):
+        for i in range(3):
             self.calibration.append([])
-            for j in xrange(4):
-                self.calibration[i].append(10000)  # high dummy value so events with it don't register
+            for j in range(4):
+                self.calibration[i].append(
+                    10000
+                )  # high dummy value so events with it don't register
 
         self.status = "Disconnected"
         self.lastEvent = BoardEvent(0, 0, 0, 0, False, False)
-        
-        self.EventQueue = Queue.LifoQueue(maxsize=1024)
+
+        self.EventQueue = queue.LifoQueue(maxsize=1024)
 
         try:
             self.receivesocket = bluetooth.BluetoothSocket(bluetooth.L2CAP)
             self.controlsocket = bluetooth.BluetoothSocket(bluetooth.L2CAP)
         except ValueError:
             raise Exception("Error: Bluetooth not found")
-        
+
         self.finished = False
 
-    def isConnected(self):
+    def is_connected(self):
         return self.status == "Connected"
 
-    # Connect to the Wiiboard at bluetooth address <address>
+    # Connect to the WiiBoard at bluetooth address <address>
     def connect(self, address):
         if address is None:
-            print "Non existant address"
+            print("Non existent address")
             return
         self.receivesocket.connect((address, 0x13))
         self.controlsocket.connect((address, 0x11))
         if self.receivesocket and self.controlsocket:
-            print "Connected to Wiiboard at address " + address
+            print("Connected to WiiBoard at address " + address)
             self.status = "Connected"
             self.address = address
             self.calibrate()
-            useExt = ["00", COMMAND_REGISTER, "04", "A4", "00", "40", "00"]
-            self.send(useExt)
-            self.setReportingType()
-            print "Wiiboard connected"
+            use_ext = "00" + str(COMMAND_REGISTER) + "04" + "A4" + "00" + "40" + "00"
+            self.send(use_ext)
+            self.set_report_type()
+            print("WiiBoard connected")
         else:
-            print "Could not connect to Wiiboard at address " + address
-            
-    def start_service(self):
-        self.finished = False
-        t = Thread(target=self.receive)
-        t.daemon = True # close if master process exits
-        t.start()
-    
-    def finish_service(self):
-        self.finished = True
-    
+            print("Could not connect to WiiBoard at address " + address)
+
     def receive(self):
-        
-        while self.status == "Connected" and not self.finished:
+        # try:
+        #   self.receivesocket.settimeout(0.1)       #not for windows?
+        while self.status == "Connected" and not self.processor.done:
             data = self.receivesocket.recv(25)
-            intype = int(data.encode("hex")[2:4])
+            intype = int(data.hex()[2:4])
             if intype == INPUT_STATUS:
                 # TODO: Status input received. It just tells us battery life really
-                self.setReportingType()
+                self.set_report_type()
             elif intype == INPUT_READ_DATA:
                 if self.calibrationRequested:
-                    packetLength = (int(str(data[4]).encode("hex"), 16) / 16 + 1)
-                    self.parseCalibrationResponse(data[7:(7 + packetLength)])
+                    print("Calibration input received")
+                    packet_length = int(int(data[4:5].hex(), 16) / 16) + 1
+                    end_slice = 7 + packet_length
+                    calibration_response = data[7:end_slice]
+                    self.calibration_parser(calibration_response)
 
-                    if packetLength < 16:
+                    if packet_length < 16:
+                        print("Ready for input, please stand on WiiBoard")
                         self.calibrationRequested = False
             elif intype == EXTENSION_8BYTES:
-                event_data = self.createBoardEvent(data[2:12])
+                board_event = self.create_board_event(data[2:12])
+                self.processor.mass(board_event)
                 try:
-                    self.EventQueue.put_nowait(event_data)
-                except Queue.Full:
+                    self.EventQueue.put_nowait(board_event)
+                except queue.Full:
                     pass
             else:
-                print "ACK to data write received"
+                print("ACK to data write received")
 
         self.status = "Disconnected"
         self.disconnect()
@@ -153,121 +145,135 @@ class Wiiboard(object):
             self.controlsocket.close()
         except:
             pass
-        print "WiiBoard disconnected"
+        print("WiiBoard disconnected")
 
-    # Try to discover a Wiiboard
+    # Try to discover a WiiBoard
     def discover(self):
-        print "Press the red sync button on the board now"
+        print("Press the red sync button on the board now")
         address = None
-        bluetoothdevices = bluetooth.discover_devices(duration=6, lookup_names=True)
+        bluetoothdevices = bluetooth.discover_devices(duration=10, lookup_names=True)
         for bluetoothdevice in bluetoothdevices:
             if bluetoothdevice[1] == BLUETOOTH_NAME:
                 address = bluetoothdevice[0]
-                print "Found Wiiboard at address " + address
+                print("Found WiiBoard at address " + address)
         if address is None:
-            print "No Wiiboards discovered."
+            print("No WiiBoard discovered.")
         return address
 
-    def createBoardEvent(self, bytes):
-        buttonBytes = bytes[0:2]
-        bytes = bytes[2:12]
-        buttonPressed = False
-        buttonReleased = False
+    def create_board_event(self, packet_bytes):
+        button_bytes = packet_bytes[0:2]
+        packet_bytes = packet_bytes[2:12]
+        button_pressed = False
+        button_released = False
 
-        state = (int(buttonBytes[0].encode("hex"), 16) << 8) | int(buttonBytes[1].encode("hex"), 16)
+        state = (int(button_bytes[0:1].hex(), 16) << 8) | int(button_bytes[1:2].hex(), 16)
         if state == BUTTON_DOWN_MASK:
-            buttonPressed = True
+            button_pressed = True
             if not self.buttonDown:
-                print "Button pressed"
+                print("Button pressed")
                 self.buttonDown = True
 
-        if not buttonPressed:
+        if not button_pressed:
             if self.lastEvent.buttonPressed:
-                buttonReleased = True
+                button_released = True
                 self.buttonDown = False
-                print "Button released"
+                print("Button released")
 
-        rawTR = (int(bytes[0].encode("hex"), 16) << 8) + int(bytes[1].encode("hex"), 16)
-        rawBR = (int(bytes[2].encode("hex"), 16) << 8) + int(bytes[3].encode("hex"), 16)
-        rawTL = (int(bytes[4].encode("hex"), 16) << 8) + int(bytes[5].encode("hex"), 16)
-        rawBL = (int(bytes[6].encode("hex"), 16) << 8) + int(bytes[7].encode("hex"), 16)
+        raw_tr = (int(packet_bytes[0:1].hex(), 16) << 8) + int(packet_bytes[1:2].hex(), 16)
+        raw_br = (int(packet_bytes[2:3].hex(), 16) << 8) + int(packet_bytes[3:4].hex(), 16)
+        raw_tl = (int(packet_bytes[4:5].hex(), 16) << 8) + int(packet_bytes[5:6].hex(), 16)
+        raw_bl = (int(packet_bytes[6:7].hex(), 16) << 8) + int(packet_bytes[7:8].hex(), 16)
 
-        topLeft = self.calcMass(rawTL, TOP_LEFT)
-        topRight = self.calcMass(rawTR, TOP_RIGHT)
-        bottomLeft = self.calcMass(rawBL, BOTTOM_LEFT)
-        bottomRight = self.calcMass(rawBR, BOTTOM_RIGHT)
-        boardEvent = BoardEvent(topLeft, topRight, bottomLeft, bottomRight, buttonPressed, buttonReleased)
-        return boardEvent
+        top_left = self.calc_mass(raw_tl, TOP_LEFT)
+        top_right = self.calc_mass(raw_tr, TOP_RIGHT)
+        bottom_left = self.calc_mass(raw_bl, BOTTOM_LEFT)
+        bottom_right = self.calc_mass(raw_br, BOTTOM_RIGHT)
+        board_event = BoardEvent(
+            top_left, top_right, bottom_left, bottom_right, button_pressed, button_released
+        )
+        return board_event
 
-    def calcMass(self, raw, pos):
+    def calc_mass(self, raw, pos):
         val = 0.0
-        #calibration[0] is calibration values for 0kg
-        #calibration[1] is calibration values for 17kg
-        #calibration[2] is calibration values for 34kg
+        # calibration[0] is calibration values for 0kg
+        # calibration[1] is calibration values for 17kg
+        # calibration[2] is calibration values for 34kg
         if raw < self.calibration[0][pos]:
             return val
         elif raw < self.calibration[1][pos]:
-            val = 17 * ((raw - self.calibration[0][pos]) / float((self.calibration[1][pos] - self.calibration[0][pos])))
+            val = 17 * (
+                    (raw - self.calibration[0][pos])
+                    / float((self.calibration[1][pos] - self.calibration[0][pos]))
+            )
         elif raw > self.calibration[1][pos]:
-            val = 17 + 17 * ((raw - self.calibration[1][pos]) / float((self.calibration[2][pos] - self.calibration[1][pos])))
+            val = 17 + 17 * (
+                    (raw - self.calibration[1][pos])
+                    / float((self.calibration[2][pos] - self.calibration[1][pos]))
+            )
 
         return val
 
-    def getEvent(self):
+    def get_event(self):
         return self.lastEvent
 
-    def getLED(self):
+    def get_led(self):
         return self.LED
 
-    def parseCalibrationResponse(self, bytes):
+    def calibration_parser(self, calibration_bytes):
         index = 0
-        if len(bytes) == 16:
-            for i in xrange(2):
-                for j in xrange(4):
-                    self.calibration[i][j] = (int(bytes[index].encode("hex"), 16) << 8) + int(bytes[index + 1].encode("hex"), 16)
+        if len(calibration_bytes) == 16:
+            for i in range(2):
+                for j in range(4):
+                    self.calibration[i][j] = (
+                                                     int((calibration_bytes[index: index + 1]).hex(), 16) << 8
+                                             ) + int((calibration_bytes[index + 1: index + 2]).hex(), 16)
                     index += 2
-        elif len(bytes) < 16:
-            for i in xrange(4):
-                self.calibration[2][i] = (int(bytes[index].encode("hex"), 16) << 8) + int(bytes[index + 1].encode("hex"), 16)
+        elif len(calibration_bytes) < 16:
+            for i in range(4):
+                self.calibration[2][i] = (
+                                                 int(calibration_bytes[index: index + 1].hex(), 16) << 8
+                                         ) + int(calibration_bytes[index + 1: index + 2].hex(), 16)
                 index += 2
 
-    # Send <data> to the Wiiboard
+    # Send <data> to the WiiBoard
     # <data> should be an array of strings, each string representing a single hex byte
-    def send(self, data):
+    def send(self, data_hex):
         if self.status != "Connected":
             return
-        data[0] = "52"
 
-        senddata = ""
-        for byte in data:
-            byte = str(byte)
-            senddata += byte.decode("hex")
+        updated_hex = "52" + data_hex[2:]
 
-        self.controlsocket.send(senddata)
+        self.controlsocket.send(bytes.fromhex(updated_hex))
 
-    #Turns the power button LED on if light is True, off if False
-    #The board must be connected in order to set the light
-    def setLight(self, light):
+    # Turns the power button LED on if light is True, off if False
+    # The board must be connected in order to set the light
+    def set_light(self, light):
         if light:
             val = "10"
         else:
             val = "00"
 
-        message = ["00", COMMAND_LIGHT, val]
+        message = "00" + str(COMMAND_LIGHT) + val
         self.send(message)
         self.LED = light
 
     def calibrate(self):
-        message = ["00", COMMAND_READ_REGISTER, "04", "A4", "00", "24", "00", "18"]
+        message = (
+                "00" + str(COMMAND_READ_REGISTER) + "04" + "A4" + "00" + "24" + "00" + "18"
+        )
+        print("Requesting calibration")
         self.send(message)
         self.calibrationRequested = True
 
-    def setReportingType(self):
-        bytearr = ["00", COMMAND_REPORTING, CONTINUOUS_REPORTING, EXTENSION_8BYTES]
+    def set_report_type(self):
+        # bytearr = ["00", COMMAND_REPORTING, CONTINUOUS_REPORTING, EXTENSION_8BYTES]
+        bytearr = (
+                "00"
+                + str(COMMAND_REPORTING)
+                + str(CONTINUOUS_REPORTING)
+                + str(EXTENSION_8BYTES)
+        )
         self.send(bytearr)
 
     def wait(self, millis):
         time.sleep(millis / 1000.0)
-
-
-        
